@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environnements virtuels
+.venv/
+venv/
+ENV/
+env/
+
+# Fichiers de configuration locale
+.env
+.env.*
+!.env.example
+
+# Base SQLite
+*.sqlite3
+*.db
+
+# Django
+staticfiles/
+media/
+
+# Pytest / coverage
+.coverage
+.pytest_cache/
+htmlcov/
+
+# IDE
+.vscode/
+.DS_Store
+
+# Build et distribution
+build/
+dist/
+*.egg-info/
