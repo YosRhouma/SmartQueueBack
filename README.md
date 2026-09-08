@@ -86,4 +86,5 @@ Le projet utilise les fichiers Django par défaut pour l'instant. Pour éviter d
 
 ## Licence
 
-Ce projet est développé à des fins pédagogiques et de démonstration.
+swagger
+http://127.0.0.1:8000/api/docs/
