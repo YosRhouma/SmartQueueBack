@@ -1,5 +1,4 @@
 from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -8,34 +7,66 @@ from rest_framework_simplejwt.exceptions import TokenError
 User = get_user_model()
 
 
+class CitizenProfileSerializer(serializers.ModelSerializer):
+    firstName = serializers.CharField(source='first_name')
+    lastName = serializers.CharField(source='last_name')
+    dateOfBirth = serializers.DateField(source='date_of_birth')
+    profilePicture = serializers.ImageField(source='profile_picture', required=False, allow_empty_file=False)
+    Localisation = serializers.JSONField(write_only=True)
+
+    class Meta:
+        from .models import CitizenProfile
+        model = CitizenProfile
+        fields = (
+            'firstName', 'lastName', 'phone', 'email', 'cin', 'dateOfBirth', 'gender',
+            'profilePicture', 'Localisation',
+        )
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['Localisation'] = {'governorate': instance.governorate, 'address': instance.address}
+        return data
+
+    def validate_Localisation(self, value):
+        required = {'governorate', 'address'}
+        missing = required - value.keys()
+        if missing:
+            raise serializers.ValidationError(f"Missing fields: {', '.join(sorted(missing))}.")
+        return value
+
+    def create(self, validated_data):
+        localisation = validated_data.pop('Localisation')
+        validated_data['governorate'] = localisation['governorate']
+        validated_data['address'] = localisation['address']
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        localisation = validated_data.pop('Localisation', None)
+        if localisation:
+            instance.governorate = localisation['governorate']
+            instance.address = localisation['address']
+        return super().update(instance, validated_data)
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = (
-            'id', 'username', 'email', 'first_name', 'last_name',
-            'phone', 'role', 'date_joined'
+            'id', 'username', 'email', 'role', 'date_joined'
         )
         read_only_fields = ('id', 'date_joined')
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
-    password_confirm = serializers.CharField(write_only=True, required=True)
-
+    password = serializers.CharField(write_only=True, required=True)
     class Meta:
         model = User
         fields = (
-            'username', 'email', 'password', 'password_confirm',
-            'first_name', 'last_name', 'phone', 'role'
+            'username', 'email', 'password',
+            'role'
         )
 
-    def validate(self, attrs):
-        if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError({'password_confirm': 'Passwords do not match.'})
-        return attrs
-
     def create(self, validated_data):
-        validated_data.pop('password_confirm')
         password = validated_data.pop('password')
         user = User.objects.create_user(password=password, **validated_data)
         return user

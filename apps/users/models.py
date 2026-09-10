@@ -22,3 +22,21 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.username
+
+
+class CitizenProfile(models.Model):
+    """Personal information kept separately from authentication data."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='citizen_profile')
+    first_name = models.CharField(max_length=150)
+    last_name = models.CharField(max_length=150)
+    phone = models.CharField(max_length=20)
+    email = models.EmailField()
+    cin = models.CharField(max_length=30, unique=True)
+    date_of_birth = models.DateField()
+    gender = models.CharField(max_length=30)
+    profile_picture = models.ImageField(upload_to='profile_pictures/', blank=True)
+    governorate = models.CharField(max_length=100)
+    address = models.CharField(max_length=255)
+
+    def __str__(self):
+        return f'{self.first_name} {self.last_name}'
