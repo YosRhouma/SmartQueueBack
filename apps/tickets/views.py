@@ -86,6 +86,18 @@ class TicketDetailAPIView(APIView):
             return Response({'detail': 'Ticket not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(TicketSerializer(ticket).data)
 
+    @swagger_auto_schema(tags=['Tickets'], operation_description='Cancel a waiting ticket owned by the authenticated citizen.')
+    def delete(self, request, pk):
+        try:
+            ticket = Ticket.objects.get(pk=pk, user=request.user)
+        except Ticket.DoesNotExist:
+            return Response({'detail': 'Ticket not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if ticket.status != Ticket.Status.WAITING:
+            return Response({'detail': 'Only a waiting ticket can be cancelled.'}, status=status.HTTP_400_BAD_REQUEST)
+        ticket.status = Ticket.Status.CANCELLED
+        ticket.save(update_fields=['status'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class InstitutionQueueAPIView(APIView):
     """Expose the current number and the end of one institution's queue."""

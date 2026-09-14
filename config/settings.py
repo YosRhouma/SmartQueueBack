@@ -27,6 +27,12 @@ SECRET_KEY = 'django-insecure-ud&%oh)ota!5f@q^q+c!aycsl-+mhpg4goaz^&pj8g^&ejei^v
 DEBUG = True
 
 ALLOWED_HOSTS = []
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:4200',
+    'http://127.0.0.1:4200',
+    'http://localhost:8100',
+    'http://127.0.0.1:8100',
+]
 
 AUTH_USER_MODEL = 'users.User'
 
