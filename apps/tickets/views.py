@@ -1,3 +1,142 @@
-from django.shortcuts import render
+from django.db import IntegrityError, transaction
+from django.db.models import Max
+from django.utils import timezone
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from drf_yasg.utils import swagger_auto_schema
 
-# Create your views here.
+from apps.institutions.models import Institution
+from apps.users.models import User
+from .models import Ticket
+from .serializers import TicketCreateSerializer, TicketSerializer
+
+
+class CitizenTicketPermission(permissions.BasePermission):
+    """Only citizen accounts may reserve and view their own tickets."""
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.role == User.Role.CITIZEN)
+
+
+class InstitutionQueuePermission(permissions.BasePermission):
+    """Only an institution owner may progress that institution's queue."""
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.role == User.Role.INSTITUTION)
+
+
+class TicketCreateAPIView(APIView):
+    """Assign the next daily number in an institution's queue."""
+    permission_classes = [CitizenTicketPermission]
+
+    @swagger_auto_schema(
+        tags=['Tickets'],
+        operation_description='Reserve the next available ticket number for an institution.',
+        request_body=TicketCreateSerializer,
+        responses={201: TicketSerializer, 400: 'Invalid or inactive institution.', 409: 'Citizen already has an active ticket.'},
+    )
+    def post(self, request):
+        serializer = TicketCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        institution = serializer.validated_data['institution']
+        if not institution.is_active:
+            return Response({'detail': 'This institution is currently unavailable.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        queue_date = timezone.localdate()
+        try:
+            # Locking the institution serializes concurrent ticket-number allocation.
+            with transaction.atomic():
+                institution = Institution.objects.select_for_update().get(pk=institution.pk)
+                if Ticket.objects.filter(user=request.user, status__in=[Ticket.Status.WAITING, Ticket.Status.CALLED]).exists():
+                    return Response({'detail': 'You already have an active ticket.'}, status=status.HTTP_409_CONFLICT)
+                last_number = Ticket.objects.filter(institution=institution, queue_date=queue_date).aggregate(Max('number'))['number__max'] or 0
+                ticket = Ticket.objects.create(
+                    user=request.user, institution=institution, queue_date=queue_date, number=last_number + 1,
+                )
+        except IntegrityError:
+            # Database constraints protect the same rule even if requests arrive simultaneously.
+            return Response({'detail': 'A ticket reservation is already active. Please refresh your tickets.'}, status=status.HTTP_409_CONFLICT)
+        return Response(TicketSerializer(ticket).data, status=status.HTTP_201_CREATED)
+
+
+class CurrentTicketAPIView(APIView):
+    """Return the citizen's single current ticket with the live number ahead."""
+    permission_classes = [CitizenTicketPermission]
+
+    @swagger_auto_schema(tags=['Tickets'], operation_description='Return the authenticated citizen\'s active ticket.')
+    def get(self, request):
+        ticket = Ticket.objects.filter(
+            user=request.user, status__in=[Ticket.Status.WAITING, Ticket.Status.CALLED],
+        ).select_related('institution').first()
+        if ticket is None:
+            return Response({'detail': 'No active ticket found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(TicketSerializer(ticket).data)
+
+
+class TicketDetailAPIView(APIView):
+    """A citizen cannot inspect another citizen's ticket by guessing its id."""
+    permission_classes = [CitizenTicketPermission]
+
+    @swagger_auto_schema(tags=['Tickets'], operation_description='Return one ticket owned by the authenticated citizen.')
+    def get(self, request, pk):
+        try:
+            ticket = Ticket.objects.select_related('institution').get(pk=pk, user=request.user)
+        except Ticket.DoesNotExist:
+            return Response({'detail': 'Ticket not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(TicketSerializer(ticket).data)
+
+
+class InstitutionQueueAPIView(APIView):
+    """Expose the current number and the end of one institution's queue."""
+    permission_classes = [permissions.AllowAny]
+
+    @swagger_auto_schema(tags=['Institutions'], operation_description='Return the current number and progress of an institution queue.')
+    def get(self, request, pk):
+        try:
+            institution = Institution.objects.get(pk=pk, is_active=True)
+        except Institution.DoesNotExist:
+            return Response({'detail': 'Institution not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        queue = Ticket.objects.filter(institution=institution, queue_date=timezone.localdate())
+        current_ticket = queue.filter(status=Ticket.Status.CALLED).order_by('-called_at').first()
+        last_number = queue.aggregate(Max('number'))['number__max'] or 0
+        return Response({
+            'institution_id': institution.id,
+            'institution_name': institution.name,
+            # Zero means that the institution has not called a number yet today.
+            'current_number': current_ticket.number if current_ticket else 0,
+            'last_ticket_number': last_number,
+            'waiting_count': queue.filter(status=Ticket.Status.WAITING).count(),
+            # The frontend can warn citizens before they reserve at a closed institution.
+            'is_currently_open': institution.is_currently_open,
+        })
+
+
+class CallNextTicketAPIView(APIView):
+    """Mark the previously called ticket as served, then call the next waiting number."""
+    permission_classes = [InstitutionQueuePermission]
+
+    @swagger_auto_schema(tags=['Institutions'], operation_description='Call the next waiting number for the authenticated institution.')
+    def post(self, request):
+        try:
+            # The OneToOne relation ensures an institution owner can advance only their own queue.
+            institution = request.user.institution
+        except Institution.DoesNotExist:
+            return Response({'detail': 'Institution profile not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if not institution.is_active:
+            return Response({'detail': 'This institution is currently unavailable.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            institution = Institution.objects.select_for_update().get(pk=institution.pk)
+            queue = Ticket.objects.filter(institution=institution, queue_date=timezone.localdate())
+            now = timezone.now()
+            # Calling a new number completes the one that was being served.
+            queue.filter(status=Ticket.Status.CALLED).update(status=Ticket.Status.SERVED, served_at=now)
+            next_ticket = queue.filter(status=Ticket.Status.WAITING).order_by('number').first()
+            if next_ticket is None:
+                return Response({'detail': 'No waiting ticket in the queue.'}, status=status.HTTP_404_NOT_FOUND)
+            next_ticket.status = Ticket.Status.CALLED
+            next_ticket.called_at = now
+            next_ticket.save(update_fields=['status', 'called_at'])
+        return Response(TicketSerializer(next_ticket).data)

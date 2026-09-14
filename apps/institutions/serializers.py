@@ -3,6 +3,14 @@ from rest_framework import serializers
 from .models import Institution
 
 
+class InstitutionPublicSerializer(serializers.ModelSerializer):
+    """Public institution data; owner and operational fields remain private."""
+    class Meta:
+        model = Institution
+        fields = ('id', 'name', 'category', 'description', 'address', 'city', 'latitude', 'longitude',
+                  'logo', 'website', 'email', 'phone', 'opening_hours', 'closing_hours', 'working_days')
+
+
 class InstitutionProfileSerializer(serializers.ModelSerializer):
     officialName = serializers.CharField(source='name')
     sector = serializers.CharField(source='category')

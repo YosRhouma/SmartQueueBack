@@ -2,12 +2,51 @@ from rest_framework import generics, permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from django.utils.decorators import method_decorator
+from django.db.models import Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from apps.users.models import User
 from .models import Institution
-from .serializers import InstitutionProfileSerializer
+from .serializers import InstitutionProfileSerializer, InstitutionPublicSerializer
+
+
+@method_decorator(name='get', decorator=swagger_auto_schema(
+    tags=['Institutions'],
+    operation_description='Search active institutions with the optional `q` query parameter.',
+    # Explicit query documentation makes the search input visible in Swagger UI.
+    manual_parameters=[
+        openapi.Parameter(
+            'q', openapi.IN_QUERY, type=openapi.TYPE_STRING, required=False,
+            description='Search by institution name, category, or city.', example='banque',
+        ),
+    ],
+))
+class InstitutionListAPIView(generics.ListAPIView):
+    """Expose only active institutions to citizens and anonymous visitors."""
+    serializer_class = InstitutionPublicSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        queryset = Institution.objects.filter(is_active=True)
+        search = self.request.query_params.get('q', '').strip()
+        if search:
+            # One lightweight parameter supports searches such as “poste”, “banque” or “Tunis”.
+            queryset = queryset.filter(Q(name__icontains=search) | Q(category__icontains=search) | Q(city__icontains=search))
+        return queryset.order_by('name')
+
+
+@method_decorator(name='get', decorator=swagger_auto_schema(
+    tags=['Institutions'],
+    operation_description='Return the public details of one active institution.',
+))
+class InstitutionDetailAPIView(generics.RetrieveAPIView):
+    """Return public details for an active institution."""
+    serializer_class = InstitutionPublicSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        return Institution.objects.filter(is_active=True).order_by('name')
 
 
 INSTITUTION_PROFILE_FORM_PARAMETERS = [

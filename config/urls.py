@@ -6,6 +6,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import include, path
 from rest_framework import permissions
+from apps.tickets.views import CallNextTicketAPIView, InstitutionQueueAPIView
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 
@@ -28,6 +29,10 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('apps.users.urls')),
     path('api/institutions/', include('apps.institutions.urls')),
+    path('api/tickets/', include('apps.tickets.urls')),
+    # A queue belongs directly to an institution, not to a service.
+    path('api/institutions/<int:pk>/queue/', InstitutionQueueAPIView.as_view(), name='institution-queue'),
+    path('api/institutions/queue/next/', CallNextTicketAPIView.as_view(), name='institution-queue-next'),
     path('api/docs/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('api/redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     path('api/schema/', schema_view.without_ui(cache_timeout=0), name='schema-json'),

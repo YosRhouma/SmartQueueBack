@@ -5,6 +5,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenRefreshView
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
@@ -62,6 +63,17 @@ class LoginAPIView(APIView):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+
+class TokenRefreshAPIView(TokenRefreshView):
+    """Keep the refresh endpoint in the Authentication section of Swagger."""
+
+    @swagger_auto_schema(
+        tags=['Authentication'],
+        operation_description='Exchange a valid refresh token for a new access token.',
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
 
 
 class LogoutAPIView(APIView):
