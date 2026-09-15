@@ -26,11 +26,11 @@ class Ticket(models.Model):
         constraints = [
             # A displayed number cannot be assigned twice in the same institution queue.
             models.UniqueConstraint(fields=['institution', 'queue_date', 'number'], name='unique_daily_institution_ticket_number'),
-            # The “my current ticket” endpoint stays unambiguous for each citizen.
+            # A citizen may have one active ticket per institution.
             models.UniqueConstraint(
-                fields=['user'],
+                fields=['user', 'institution'],
                 condition=Q(status__in=['waiting', 'called']),
-                name='one_active_ticket_per_user',
+                name='one_active_ticket_per_user_institution',
             ),
         ]
 

@@ -34,7 +34,7 @@ class TicketCreateAPIView(APIView):
         tags=['Tickets'],
         operation_description='Reserve the next available ticket number for an institution.',
         request_body=TicketCreateSerializer,
-        responses={201: TicketSerializer, 400: 'Invalid or inactive institution.', 409: 'Citizen already has an active ticket.'},
+        responses={201: TicketSerializer, 400: 'Invalid or inactive institution.'},
     )
     def post(self, request):
         serializer = TicketCreateSerializer(data=request.data)
@@ -48,15 +48,13 @@ class TicketCreateAPIView(APIView):
             # Locking the institution serializes concurrent ticket-number allocation.
             with transaction.atomic():
                 institution = Institution.objects.select_for_update().get(pk=institution.pk)
-                if Ticket.objects.filter(user=request.user, status__in=[Ticket.Status.WAITING, Ticket.Status.CALLED]).exists():
-                    return Response({'detail': 'You already have an active ticket.'}, status=status.HTTP_409_CONFLICT)
                 last_number = Ticket.objects.filter(institution=institution, queue_date=queue_date).aggregate(Max('number'))['number__max'] or 0
                 ticket = Ticket.objects.create(
                     user=request.user, institution=institution, queue_date=queue_date, number=last_number + 1,
                 )
         except IntegrityError:
-            # Database constraints protect the same rule even if requests arrive simultaneously.
-            return Response({'detail': 'A ticket reservation is already active. Please refresh your tickets.'}, status=status.HTTP_409_CONFLICT)
+            # Database constraints protect the per-institution rule during concurrent requests.
+            return Response({'detail': 'You already have an active ticket in this institution.'}, status=status.HTTP_409_CONFLICT)
         return Response(TicketSerializer(ticket).data, status=status.HTTP_201_CREATED)
 
 
@@ -72,6 +70,16 @@ class CurrentTicketAPIView(APIView):
         if ticket is None:
             return Response({'detail': 'No active ticket found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(TicketSerializer(ticket).data)
+
+
+class UserTicketsAPIView(APIView):
+    """Return every ticket owned by the authenticated citizen."""
+    permission_classes = [CitizenTicketPermission]
+
+    @swagger_auto_schema(tags=['Tickets'], operation_description='Return all tickets owned by the authenticated citizen.')
+    def get(self, request):
+        tickets = Ticket.objects.filter(user=request.user).select_related('institution')
+        return Response(TicketSerializer(tickets, many=True).data)
 
 
 class TicketDetailAPIView(APIView):
@@ -147,7 +155,10 @@ class CallNextTicketAPIView(APIView):
             queue.filter(status=Ticket.Status.CALLED).update(status=Ticket.Status.SERVED, served_at=now)
             next_ticket = queue.filter(status=Ticket.Status.WAITING).order_by('number').first()
             if next_ticket is None:
-                return Response({'detail': 'No waiting ticket in the queue.'}, status=status.HTTP_404_NOT_FOUND)
+                served_ticket = queue.filter(status=Ticket.Status.SERVED, served_at=now).order_by('-served_at').first()
+                if served_ticket is None:
+                    return Response({'detail': 'No ticket in the queue.'}, status=status.HTTP_404_NOT_FOUND)
+                return Response(TicketSerializer(served_ticket).data)
             next_ticket.status = Ticket.Status.CALLED
             next_ticket.called_at = now
             next_ticket.save(update_fields=['status', 'called_at'])

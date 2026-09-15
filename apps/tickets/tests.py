@@ -13,12 +13,35 @@ class InstitutionQueueAPITest(APITestCase):
         self.institution = Institution.objects.create(
             owner=self.owner, name='Banque Centrale', category='Banque', address='1 Rue de la Banque', city='Tunis',
         )
+        self.second_owner = User.objects.create_user(username='post-owner', password='StrongPass123', role=User.Role.INSTITUTION)
+        self.second_institution = Institution.objects.create(
+            owner=self.second_owner, name='La Poste', category='Poste', address='2 Rue de la Poste', city='Tunis',
+        )
         self.first_citizen = User.objects.create_user(username='citizen-one', password='StrongPass123', role=User.Role.CITIZEN)
         self.second_citizen = User.objects.create_user(username='citizen-two', password='StrongPass123', role=User.Role.CITIZEN)
 
-    def reserve_ticket(self, citizen):
+    def reserve_ticket(self, citizen, institution=None):
         self.client.force_authenticate(citizen)
-        return self.client.post('/api/tickets/', {'institution_id': self.institution.id}, format='json')
+        institution = institution or self.institution
+        return self.client.post('/api/tickets/', {'institution_id': institution.id}, format='json')
+
+    def test_citizen_can_have_active_tickets_in_different_institutions(self):
+        first = self.reserve_ticket(self.first_citizen)
+        second = self.reserve_ticket(self.first_citizen, self.second_institution)
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+
+        tickets = self.client.get('/api/tickets/my-tickets/')
+        self.assertEqual(tickets.status_code, status.HTTP_200_OK)
+        self.assertEqual({ticket['institution_id'] for ticket in tickets.data}, {self.institution.id, self.second_institution.id})
+
+    def test_citizen_cannot_have_two_active_tickets_in_same_institution(self):
+        first = self.reserve_ticket(self.first_citizen)
+        second = self.reserve_ticket(self.first_citizen)
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_409_CONFLICT)
 
     def test_citizens_receive_consecutive_numbers_for_the_same_institution(self):
         # The institution queue—not a service—determines ticket numbers.
@@ -48,6 +71,11 @@ class InstitutionQueueAPITest(APITestCase):
         self.assertEqual(second_call.data['number'], second.data['number'])
         self.assertEqual(Ticket.objects.get(pk=first.data['id']).status, Ticket.Status.SERVED)
 
+        final_call = self.client.post('/api/institutions/queue/next/')
+        self.assertEqual(final_call.status_code, status.HTTP_200_OK)
+        self.assertEqual(final_call.data['id'], second.data['id'])
+        self.assertEqual(final_call.data['status'], Ticket.Status.SERVED)
+
     def test_current_ticket_reports_people_ahead_and_is_private(self):
         # A citizen sees progress for their own ticket but cannot read another ticket id.
         first = self.reserve_ticket(self.first_citizen)
@@ -56,6 +84,6 @@ class InstitutionQueueAPITest(APITestCase):
         private_ticket = self.client.get(f'/api/tickets/{first.data["id"]}/')
 
         self.assertEqual(current.status_code, status.HTTP_200_OK)
-        self.assertEqual(current.data['id'], second.data['id'])
-        self.assertEqual(current.data['people_ahead'], 1)
+        self.assertEqual(current.data['id'], first.data['id'])
+        self.assertEqual(current.data['people_ahead'], 0)
         self.assertEqual(private_ticket.status_code, status.HTTP_404_NOT_FOUND)
