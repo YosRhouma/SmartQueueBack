@@ -3,6 +3,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
+import json
 
 User = get_user_model()
 
@@ -28,6 +29,13 @@ class CitizenProfileSerializer(serializers.ModelSerializer):
         return data
 
     def validate_Localisation(self, value):
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                raise serializers.ValidationError('Localisation must be valid JSON.')
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('Localisation must be a JSON object.')
         required = {'governorate', 'address'}
         missing = required - value.keys()
         if missing:

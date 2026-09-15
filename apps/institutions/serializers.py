@@ -1,4 +1,7 @@
 from rest_framework import serializers
+import json
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import URLValidator
 
 from .models import Institution
 
@@ -12,19 +15,21 @@ class InstitutionPublicSerializer(serializers.ModelSerializer):
 
 
 class InstitutionProfileSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(read_only=True)
     officialName = serializers.CharField(source='name')
     sector = serializers.CharField(source='category')
     logo = serializers.ImageField(required=False, allow_empty_file=False)
-    website = serializers.URLField(required=False, allow_blank=True)
+    website = serializers.CharField(required=False, allow_blank=True)
     Localisation = serializers.JSONField(write_only=True)
     Horaire = serializers.JSONField(write_only=True)
 
     class Meta:
         model = Institution
         fields = (
-            'officialName', 'description', 'logo', 'sector', 'website', 'email', 'phone',
-            'Localisation', 'Horaire',
+            'id', 'officialName', 'description', 'logo', 'sector', 'website', 'email', 'phone',
+            'is_active', 'Localisation', 'Horaire',
         )
+        read_only_fields = ('id',)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -41,7 +46,19 @@ class InstitutionProfileSerializer(serializers.ModelSerializer):
         }
         return data
 
+    def validate_website(self, value):
+        if not value:
+            return value
+        if not value.startswith(('http://', 'https://')):
+            value = f'https://{value}'
+        try:
+            URLValidator()(value)
+        except DjangoValidationError:
+            raise serializers.ValidationError('Enter a valid URL.')
+        return value
+
     def validate_Localisation(self, value):
+        value = self._coerce_json_object(value, 'Localisation')
         required = {'governorate', 'address', 'postalCode'}
         missing = required - value.keys()
         if missing:
@@ -49,6 +66,7 @@ class InstitutionProfileSerializer(serializers.ModelSerializer):
         return value
 
     def validate_Horaire(self, value):
+        value = self._coerce_json_object(value, 'Horaire')
         required = {'openingHours', 'closingHours', 'workingDays', 'isCurrentlyOpen'}
         missing = required - value.keys()
         if missing:
@@ -57,6 +75,16 @@ class InstitutionProfileSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'workingDays': 'Must be a list.'})
         if not isinstance(value['isCurrentlyOpen'], bool):
             raise serializers.ValidationError({'isCurrentlyOpen': 'Must be a boolean.'})
+        return value
+
+    def _coerce_json_object(self, value, field_name):
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                raise serializers.ValidationError(f'{field_name} must be valid JSON.')
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(f'{field_name} must be a JSON object.')
         return value
 
     def _flatten_nested_data(self, validated_data):
