@@ -1,6 +1,5 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 import json
@@ -67,6 +66,7 @@ class UserSerializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True)
+
     class Meta:
         model = User
         fields = (
@@ -74,21 +74,45 @@ class RegisterSerializer(serializers.ModelSerializer):
             'role'
         )
 
+    def validate_email(self, value):
+        email = value.strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError('A user with this email already exists.')
+        return email
+
+    def validate(self, attrs):
+        username = attrs.get('username', '').strip()
+        email = attrs.get('email', '').strip()
+        if username.lower() == email.lower():
+            raise serializers.ValidationError({'username': 'Username and email must be different fields.'})
+        attrs['username'] = username
+        attrs['email'] = email.lower()
+        return attrs
+
     def create(self, validated_data):
         password = validated_data.pop('password')
         user = User.objects.create_user(password=password, **validated_data)
         return user
 
 
-class LoginSerializer(TokenObtainPairSerializer):
-    username_field = 'username'
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+    password = serializers.CharField(write_only=True, required=True)
 
     def validate(self, attrs):
-        data = super().validate(attrs)
-        refresh = RefreshToken.for_user(self.user)
+        try:
+            user = User.objects.get(email__iexact=attrs['email'])
+        except User.DoesNotExist:
+            raise serializers.ValidationError({'detail': 'Invalid email or password.'})
+
+        if not user.check_password(attrs['password']) or not user.is_active:
+            raise serializers.ValidationError({'detail': 'Invalid email or password.'})
+
+        refresh = RefreshToken.for_user(user)
+        data = {}
         data['refresh'] = str(refresh)
         data['access'] = str(refresh.access_token)
-        data['user'] = UserSerializer(self.user).data
+        data['user'] = UserSerializer(user).data
         return data
 
 

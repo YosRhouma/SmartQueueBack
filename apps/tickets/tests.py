@@ -84,6 +84,6 @@ class InstitutionQueueAPITest(APITestCase):
         private_ticket = self.client.get(f'/api/tickets/{first.data["id"]}/')
 
         self.assertEqual(current.status_code, status.HTTP_200_OK)
-        self.assertEqual(current.data['id'], first.data['id'])
-        self.assertEqual(current.data['people_ahead'], 0)
+        self.assertEqual(current.data['id'], second.data['id'])
+        self.assertEqual(current.data['people_ahead'], 1)
         self.assertEqual(private_ticket.status_code, status.HTTP_404_NOT_FOUND)

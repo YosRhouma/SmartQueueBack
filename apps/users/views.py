@@ -169,4 +169,4 @@ class CitizenProfileAPIView(generics.RetrieveDestroyAPIView, generics.CreateAPIV
             self.get_object().delete()
         except CitizenProfile.DoesNotExist:
             return Response({'detail': 'Citizen profile not found.'}, status=status.HTTP_404_NOT_FOUND)
-        return Response({'detail': 'Citizen profile deleted.'}, status=status.HTTP_200_OK)
+        return Response(status=status.HTTP_204_NO_CONTENT)

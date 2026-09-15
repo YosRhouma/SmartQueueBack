@@ -25,7 +25,7 @@ class AuthAPITest(APITestCase):
         self.assertIn('access', response.data)
         self.assertIn('refresh', response.data)
 
-    def test_login_accepts_username_and_password(self):
+    def test_login_accepts_email_and_password(self):
         user = User.objects.create_user(
             username='demo_user',
             email='demo@example.com',
@@ -38,7 +38,7 @@ class AuthAPITest(APITestCase):
 
         url = reverse('login')
         response = self.client.post(url, {
-            'username': 'demo_user',
+            'email': 'demo@example.com',
             'password': 'StrongPass123',
         }, format='json')
 
