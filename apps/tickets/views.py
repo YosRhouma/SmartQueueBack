@@ -7,6 +7,8 @@ from rest_framework.views import APIView
 from drf_yasg.utils import swagger_auto_schema
 
 from apps.institutions.models import Institution
+from apps.notifications.models import Notification
+from apps.notifications.services import broadcast_notification
 from apps.users.models import User
 from .models import Ticket
 from .serializers import TicketCreateSerializer, TicketSerializer
@@ -162,4 +164,28 @@ class CallNextTicketAPIView(APIView):
             next_ticket.status = Ticket.Status.CALLED
             next_ticket.called_at = now
             next_ticket.save(update_fields=['status', 'called_at'])
+            turn_notification, turn_created = Notification.objects.get_or_create(
+                ticket=next_ticket,
+                kind=Notification.Kind.TURN,
+                defaults={
+                    'user': next_ticket.user,
+                    'message': f'C\'est votre tour à {next_ticket.institution.name}.',
+                },
+            )
+            if turn_created:
+                broadcast_notification(turn_notification)
+            next_waiting_ticket = queue.filter(
+                status=Ticket.Status.WAITING, number__gt=next_ticket.number,
+            ).order_by('number').first()
+            if next_waiting_ticket is not None:
+                one_before_notification, one_before_created = Notification.objects.get_or_create(
+                    ticket=next_waiting_ticket,
+                    kind=Notification.Kind.ONE_BEFORE,
+                    defaults={
+                        'user': next_waiting_ticket.user,
+                        'message': f'Il reste un ticket avant votre tour à {next_waiting_ticket.institution.name}.',
+                    },
+                )
+                if one_before_created:
+                    broadcast_notification(one_before_notification)
         return Response(TicketSerializer(next_ticket).data)

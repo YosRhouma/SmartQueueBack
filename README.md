@@ -88,3 +88,6 @@ Le projet utilise les fichiers Django par défaut pour l'instant. Pour éviter d
 
 swagger
 http://127.0.0.1:8000/api/docs/
+
+## nouvelle commande d'execution 
+daphne -p 8000 config.asgi:application

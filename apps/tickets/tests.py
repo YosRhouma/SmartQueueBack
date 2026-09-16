@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.institutions.models import Institution
+from apps.notifications.models import Notification
 from apps.users.models import User
 from .models import Ticket
 
@@ -87,3 +88,37 @@ class InstitutionQueueAPITest(APITestCase):
         self.assertEqual(current.data['id'], second.data['id'])
         self.assertEqual(current.data['people_ahead'], 1)
         self.assertEqual(private_ticket.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_queue_progress_creates_turn_notifications(self):
+        first = self.reserve_ticket(self.first_citizen)
+        second = self.reserve_ticket(self.second_citizen)
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.post('/api/institutions/queue/next/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(Notification.objects.filter(
+            user=self.first_citizen, ticket_id=first.data['id'], kind=Notification.Kind.TURN,
+        ).exists())
+        self.assertTrue(Notification.objects.filter(
+            user=self.second_citizen, ticket_id=second.data['id'], kind=Notification.Kind.ONE_BEFORE,
+        ).exists())
+
+    def test_citizen_can_list_only_own_notifications(self):
+        first = self.reserve_ticket(self.first_citizen)
+        second = self.reserve_ticket(self.second_citizen)
+        Notification.objects.create(
+            user=self.first_citizen, ticket_id=first.data['id'], kind=Notification.Kind.TURN,
+            message='Your turn.',
+        )
+        Notification.objects.create(
+            user=self.second_citizen, ticket_id=second.data['id'], kind=Notification.Kind.TURN,
+            message='Your turn.',
+        )
+
+        self.client.force_authenticate(self.first_citizen)
+        response = self.client.get('/api/notifications/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['ticket'], first.data['id'])

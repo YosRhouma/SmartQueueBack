@@ -30,6 +30,7 @@ urlpatterns = [
     path('api/auth/', include('apps.users.urls')),
     path('api/institutions/', include('apps.institutions.urls')),
     path('api/tickets/', include('apps.tickets.urls')),
+    path('api/notifications/', include('apps.notifications.urls')),
     # A queue belongs directly to an institution, not to a service.
     path('api/institutions/<int:pk>/queue/', InstitutionQueueAPIView.as_view(), name='institution-queue'),
     path('api/institutions/queue/next/', CallNextTicketAPIView.as_view(), name='institution-queue-next'),
