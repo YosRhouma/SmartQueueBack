@@ -99,6 +99,32 @@ CHANNEL_LAYERS = {
     },
 }
 
+# Development-only visibility for the notification WebSocket flow.
+# It prints connection, broadcast and delivery events in the Daphne console.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'simple': {
+            'format': '[{levelname}] {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'loggers': {
+        'apps.notifications': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
